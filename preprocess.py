@@ -270,7 +270,7 @@ if __name__ == '__main__':
     for mode in ['train', 'test']:
         print(f"Processing {mode} set")
         img_list = []
-        img_folder = os.path.join(dataset_path, 'images')
+        img_folder = os.path.join(dataset_path, mode)
         data_list = os.listdir(img_folder)
         data_list.sort()
 
