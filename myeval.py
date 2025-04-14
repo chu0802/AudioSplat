@@ -1,0 +1,162 @@
+import os
+
+import random
+from argparse import ArgumentParser
+import numpy as np
+import torch
+
+from autoencoder.model import Autoencoder
+from features.api import AudioCLIPNetwork, AudioCLIPNetworkConfig
+import librosa
+import glob
+import cv2
+from pathlib import Path
+from tqdm import tqdm
+
+
+def seed_everything(seed_value):
+    random.seed(seed_value)
+    np.random.seed(seed_value)
+    torch.manual_seed(seed_value)
+    os.environ['PYTHONHASHSEED'] = str(seed_value)
+    
+    if torch.cuda.is_available(): 
+        torch.cuda.manual_seed(seed_value)
+        torch.cuda.manual_seed_all(seed_value)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = True
+
+@torch.no_grad()
+def evaluate(feat_dir, image_dir, output_path, audio_path, autoencoder, mask_thresh):
+    device = torch.device("cuda")
+    
+    feat_paths = sorted(glob.glob(os.path.join(feat_dir, '*.npy')))
+    image_paths = sorted(glob.glob(os.path.join(image_dir, '*.png')))
+    
+    compressed_sem_feats = [
+        np.load(feat_path)
+        for feat_path in feat_paths
+    ]
+    
+    aclip_model = AudioCLIPNetwork(AudioCLIPNetworkConfig).eval()
+    
+    # negatives = [["object"], ["things"], ["stuff"], ["texture"]]
+        
+    # with torch.no_grad():
+    #     ((_, _, negative_text_features), _), _ = aclip_model.model(text=negatives)
+    
+    # negative_text_features /= negative_text_features.norm(dim=-1, keepdim=True)
+    
+    for feat, image_path in tqdm(zip(compressed_sem_feats, image_paths), total=len(compressed_sem_feats)):
+        sem_feat = torch.from_numpy(feat).float().to(device)
+        
+        
+        rgb_img = cv2.imread(image_path)[..., ::-1]
+        rgb_img = (rgb_img / 255.0).astype(np.float32)
+        rgb_img = torch.from_numpy(rgb_img).to(device)
+
+        
+        h, w, _ = sem_feat.shape
+        restored_feat = autoencoder.decode(sem_feat).reshape(h, w, -1)
+        
+        # query image by text
+        
+        input_text = [["car"]]
+        ((_, _, text_features), _), _ = aclip_model.model(text=input_text)
+        
+        text_features /= text_features.norm(dim=-1, keepdim=True)        
+        
+        scale_image_text = torch.clamp(aclip_model.model.logit_scale.exp(), min=1.0, max=100.0)
+        
+        text_image_values = scale_image_text * torch.einsum("bk,ijk->bij", text_features, restored_feat)
+        
+        ti_min_value, ti_max_value = text_image_values.min(), text_image_values.max()
+        text_image_values = (text_image_values - ti_min_value) / (ti_max_value - ti_min_value)
+        
+        # calculate the 90th percentile of the text_image_values
+        text_image_values = text_image_values.squeeze().cpu().numpy()
+        threshold = np.percentile(text_image_values, 80)
+        
+        text_image_values[text_image_values < threshold] = 0
+        text_image_values[text_image_values >= threshold] = 1
+        
+        # use heat map to visualize the values
+        text_image_values = (text_image_values * 255).astype(np.uint8)
+        text_image_values = cv2.applyColorMap(text_image_values, cv2.COLORMAP_JET)
+        
+        ti_output_dir = Path(output_path) / "text_image"
+        ti_output_dir.mkdir(parents=True, exist_ok=True)
+        
+        cv2.imwrite((ti_output_dir / os.path.basename(image_path)).as_posix(), text_image_values)
+        
+        # query image by audio
+        
+        track, _ = librosa.load(audio_path, sr=44100, dtype=np.float32)
+        audio_feat = aclip_model.audio_transforms(track.reshape(1, -1))[None]
+
+        ((audio_features, _, _), _), _ = aclip_model.model(audio=audio_feat)
+        audio_features /= audio_features.norm(dim=-1, keepdim=True)
+        
+        scale_audio_image = torch.clamp(aclip_model.model.logit_scale_ai.exp(), min=1.0, max=100.0)
+        
+        audio_image_values = scale_audio_image * torch.einsum("bk,ijk->bij", audio_features, restored_feat)
+
+        ai_min_value, ai_max_value = audio_image_values.min(), audio_image_values.max()
+        audio_image_values = (audio_image_values - ai_min_value) / (ai_max_value - ai_min_value)
+        
+        
+        # calculate the 90th percentile of the audio_image_values
+        audio_image_values = audio_image_values.squeeze().cpu().numpy()
+        threshold = np.percentile(audio_image_values, 80)
+        
+        audio_image_values[audio_image_values < threshold] = 0
+        audio_image_values[audio_image_values >= threshold] = 1
+        
+        audio_image_values = (audio_image_values * 255).astype(np.uint8)
+        audio_image_values = cv2.applyColorMap(audio_image_values, cv2.COLORMAP_JET)
+        
+        ai_output_dir = Path(output_path) / "audio_image"
+        ai_output_dir.mkdir(parents=True, exist_ok=True)
+        
+        cv2.imwrite((ai_output_dir / os.path.basename(image_path)).as_posix(), audio_image_values)
+        
+
+    640000 * 1
+if __name__ == "__main__":
+    seed_num = 42
+    seed_everything(seed_num)
+    
+    parser = ArgumentParser(description="prompt any label")
+    parser.add_argument("--dataset_name", type=str, default=None)
+    parser.add_argument('--feat_dir', type=str, default=None)
+    parser.add_argument('--image_dir', type=str, default=None)
+    parser.add_argument("--ae_ckpt_dir", type=str, default=None)
+    parser.add_argument("--output_dir", type=str, default=None)
+    parser.add_argument("--audio_path", type=str, default=None)
+    parser.add_argument("--mask_thresh", type=float, default=0.8)
+    parser.add_argument('--encoder_dims',
+                        nargs = '+',
+                        type=int,
+                        default=[256, 128, 64, 32, 3],
+                        )
+    parser.add_argument('--decoder_dims',
+                        nargs = '+',
+                        type=int,
+                        default=[16, 32, 64, 128, 256, 256, 512],
+                        )
+    args = parser.parse_args()
+
+    dataset_name = args.dataset_name
+    mask_thresh = args.mask_thresh
+    feature_dir = args.feat_dir
+    image_dir = args.image_dir
+    output_path = args.output_dir
+    audio_path = args.audio_path
+    ae_ckpt_path = os.path.join(args.ae_ckpt_dir, "best_ckpt.pth")
+
+    autoencoder = Autoencoder(args.encoder_dims, args.decoder_dims)
+    autoencoder.load_state_dict(torch.load(ae_ckpt_path))
+    autoencoder = autoencoder.cuda().eval()
+
+    evaluate(feature_dir, image_dir, output_path, audio_path, autoencoder, mask_thresh)
+    # evaluate(feat_dir, output_path, ae_ckpt_path, mask_thresh, args.encoder_dims, args.decoder_dims)

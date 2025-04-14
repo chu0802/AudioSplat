@@ -21,6 +21,24 @@ from argparse import ArgumentParser
 from arguments import ModelParams, PipelineParams, get_combined_args
 from gaussian_renderer import GaussianModel
 
+def get_min_max_btwn_gt_and_rendering(gt_feature, rendering_feature):
+    gt_min_value = gt_feature.reshape(gt_feature.shape[0], -1).min(dim=1).values
+    rendering_min_value = rendering_feature.reshape(rendering_feature.shape[0], -1).min(dim=1).values
+    
+    min_value = torch.concat([gt_min_value, rendering_min_value], dim=0).min(dim=0).values
+    
+    gt_max_value = gt_feature.reshape(gt_feature.shape[0], -1).max(dim=1).values
+    rendering_max_value = rendering_feature.reshape(rendering_feature.shape[0], -1).max(dim=1).values
+    max_value = torch.concat([gt_max_value, rendering_max_value], dim=0).max(dim=0).values
+    
+    return min_value, max_value
+
+def feature_to_color(feature, min_value, max_value):
+    # input feature size: (feature_dim, H, W)
+    normalized_feature = (feature - min_value[..., None]) / (max_value[..., None] - min_value[..., None])
+    return normalized_feature.reshape(feature.shape)
+    
+
 def render_set(model_path, source_path, name, iteration, views, gaussians, pipeline, background, args):
     render_path = os.path.join(model_path, name, "ours_{}".format(iteration), "renders")
     gts_path = os.path.join(model_path, name, "ours_{}".format(iteration), "gt")
@@ -46,10 +64,11 @@ def render_set(model_path, source_path, name, iteration, views, gaussians, pipel
         else:
             gt, mask = view.get_language_feature(os.path.join(source_path, args.language_features_name), feature_level=args.feature_level)
 
+        min_value, max_value = get_min_max_btwn_gt_and_rendering(gt, rendering)
         np.save(os.path.join(render_npy_path, '{0:05d}'.format(idx) + ".npy"),rendering.permute(1,2,0).cpu().numpy())
         np.save(os.path.join(gts_npy_path, '{0:05d}'.format(idx) + ".npy"),gt.permute(1,2,0).cpu().numpy())
-        torchvision.utils.save_image(rendering, os.path.join(render_path, '{0:05d}'.format(idx) + ".png"))
-        torchvision.utils.save_image(gt, os.path.join(gts_path, '{0:05d}'.format(idx) + ".png"))
+        torchvision.utils.save_image(feature_to_color(rendering, min_value, max_value), os.path.join(render_path, '{0:05d}'.format(idx) + ".png"))
+        torchvision.utils.save_image(feature_to_color(gt, min_value, max_value), os.path.join(gts_path, '{0:05d}'.format(idx) + ".png"))
                
 def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParams, skip_train : bool, skip_test : bool, args):
     with torch.no_grad():

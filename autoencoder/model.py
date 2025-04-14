@@ -6,9 +6,9 @@ class Autoencoder(nn.Module):
     def __init__(self, encoder_hidden_dims, decoder_hidden_dims):
         super(Autoencoder, self).__init__()
         encoder_layers = []
-        for i in range(len(encoder_hidden_dims)):
-            if i == 0:
-                encoder_layers.append(nn.Linear(512, encoder_hidden_dims[i]))
+        for i in range(1, len(encoder_hidden_dims)):
+            if i == 1:
+                encoder_layers.append(nn.Linear(encoder_hidden_dims[0], encoder_hidden_dims[1]))
             else:
                 encoder_layers.append(torch.nn.BatchNorm1d(encoder_hidden_dims[i-1]))
                 encoder_layers.append(nn.ReLU())
