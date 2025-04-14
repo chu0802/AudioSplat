@@ -79,18 +79,13 @@ def _embed_clip_sam_tiles(image, sam_encoder):
     seg_images, seg_map = sam_encoder(aug_imgs)
 
     clip_embeds = {}
-    for mode in ['default', 's', 'm', 'l']:
+    for mode in ['l']:
         tiles = seg_images[mode]
         tiles = tiles.to("cuda")
         clip_embed = model.encode_image(tiles)
         clip_embed /= clip_embed.norm(dim=-1, keepdim=True)
         clip_embeds[mode] = clip_embed.detach().cpu().half()
-    #     tmp_output_dir = Path(f"tmp_output/{mode}")
-    #     tmp_output_dir.mkdir(parents=True, exist_ok=True)
-    #     # save tiles to tmp_output_dir
-    #     for i, tile in enumerate(tiles):
-    #         cv2.imwrite(str(tmp_output_dir / f"{i}.png"), (tile.permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8).convert_color(cv2.COLOR_BGR2RGB))
-    # exit()
+
     return clip_embeds, seg_map
 
 def get_seg_img(mask, image):
@@ -183,28 +178,24 @@ def mask_nms(masks, scores, iou_thr=0.7, score_thr=0.1, inner_thr=0.2, **kwargs)
     selected_idx = idx[keep]
     return selected_idx
 
-def masks_update(*args, **kwargs):
+def masks_update(masks_lvl, **kwargs):
     # remove redundant masks based on the scores and overlap rate between masks
-    masks_new = ()
-    for masks_lvl in (args):
-        seg_pred =  torch.from_numpy(np.stack([m['segmentation'] for m in masks_lvl], axis=0))
-        iou_pred = torch.from_numpy(np.stack([m['predicted_iou'] for m in masks_lvl], axis=0))
-        stability = torch.from_numpy(np.stack([m['stability_score'] for m in masks_lvl], axis=0))
+    
+    seg_pred =  torch.from_numpy(np.stack([m['segmentation'] for m in masks_lvl], axis=0))
+    iou_pred = torch.from_numpy(np.stack([m['predicted_iou'] for m in masks_lvl], axis=0))
+    stability = torch.from_numpy(np.stack([m['stability_score'] for m in masks_lvl], axis=0))
 
-        scores = stability * iou_pred
-        keep_mask_nms = mask_nms(seg_pred, scores, **kwargs)
-        masks_lvl = filter(keep_mask_nms, masks_lvl)
-
-        masks_new += (masks_lvl,)
-    return masks_new
+    scores = stability * iou_pred
+    keep_mask_nms = mask_nms(seg_pred, scores, **kwargs)
+    masks_lvl = filter(keep_mask_nms, masks_lvl)
+    return masks_lvl
 
 def sam_encoder(image):
     image = cv2.cvtColor(image[0].permute(1,2,0).numpy().astype(np.uint8), cv2.COLOR_BGR2RGB)
     # pre-compute masks
-    masks_default, masks_s, masks_m, masks_l = mask_generator.generate(image)
+    _, _, _, masks_l = mask_generator.generate(image)
     # pre-compute postprocess
-    masks_default, masks_s, masks_m, masks_l = \
-        masks_update(masks_default, masks_s, masks_m, masks_l, iou_thr=0.8, score_thr=0.7, inner_thr=0.5)
+    masks_l = masks_update(masks_l, iou_thr=0.8, score_thr=0.7, inner_thr=0.5)
     
     def mask2segmap(masks, image):
         seg_img_list = []
@@ -220,15 +211,8 @@ def sam_encoder(image):
         seg_imgs = (torch.from_numpy(seg_imgs.astype("float32")).permute(0,3,1,2) / 255.0).to('cuda')
 
         return seg_imgs, seg_map
-
     seg_images, seg_maps = {}, {}
-    seg_images['default'], seg_maps['default'] = mask2segmap(masks_default, image)
-    if len(masks_s) != 0:
-        seg_images['s'], seg_maps['s'] = mask2segmap(masks_s, image)
-    if len(masks_m) != 0:
-        seg_images['m'], seg_maps['m'] = mask2segmap(masks_m, image)
-    if len(masks_l) != 0:
-        seg_images['l'], seg_maps['l'] = mask2segmap(masks_l, image)
+    seg_images['l'], seg_maps['l'] = mask2segmap(masks_l, image)
     
     # 0:default 1:s 2:m 3:l
     return seg_images, seg_maps
@@ -260,9 +244,7 @@ if __name__ == '__main__':
 
     dataset_path = args.dataset_path
     sam_ckpt_path = args.sam_ckpt_path
-    img_folder = os.path.join(dataset_path, 'images')
-    data_list = os.listdir(img_folder)
-    data_list.sort()
+    
     
     model = (
         OpenCLIPNetwork(OpenCLIPNetworkConfig)
@@ -282,34 +264,42 @@ if __name__ == '__main__':
         min_mask_region_area=100,
     )
 
-    img_list = []
+    
     WARNED = False
-    for data_path in data_list:
-        image_path = os.path.join(img_folder, data_path)
-        image = cv2.imread(image_path)
 
-        orig_w, orig_h = image.shape[1], image.shape[0]
-        if args.resolution == -1:
-            if orig_h > 1080:
-                if not WARNED:
-                    print("[ INFO ] Encountered quite large input images (>1080P), rescaling to 1080P.\n "
-                        "If this is not desired, please explicitly specify '--resolution/-r' as 1")
-                    WARNED = True
-                global_down = orig_h / 1080
+    for mode in ['train', 'test']:
+        print(f"Processing {mode} set")
+        img_list = []
+        img_folder = os.path.join(dataset_path, 'images')
+        data_list = os.listdir(img_folder)
+        data_list.sort()
+
+        for data_path in data_list:
+            image_path = os.path.join(img_folder, data_path)
+            image = cv2.imread(image_path)
+
+            orig_w, orig_h = image.shape[1], image.shape[0]
+            if args.resolution == -1:
+                if orig_h > 1080:
+                    if not WARNED:
+                        print("[ INFO ] Encountered quite large input images (>1080P), rescaling to 1080P.\n "
+                            "If this is not desired, please explicitly specify '--resolution/-r' as 1")
+                        WARNED = True
+                    global_down = orig_h / 1080
+                else:
+                    global_down = 1
             else:
-                global_down = 1
-        else:
-            global_down = orig_w / args.resolution
+                global_down = orig_w / args.resolution
+                
+            scale = float(global_down)
+            resolution = (int( orig_w  / scale), int(orig_h / scale))
             
-        scale = float(global_down)
-        resolution = (int( orig_w  / scale), int(orig_h / scale))
-        
-        image = cv2.resize(image, resolution)
-        image = torch.from_numpy(image)
-        img_list.append(image)
-    images = [img_list[i].permute(2, 0, 1)[None, ...] for i in range(len(img_list))]
-    imgs = torch.cat(images)
+            image = cv2.resize(image, resolution)
+            image = torch.from_numpy(image)
+            img_list.append(image)
+        images = [img_list[i].permute(2, 0, 1)[None, ...] for i in range(len(img_list))]
+        imgs = torch.cat(images)
 
-    save_folder = os.path.join(dataset_path, 'language_features')
-    os.makedirs(save_folder, exist_ok=True)
-    create(args, imgs, data_list, save_folder)
+        save_folder = os.path.join(dataset_path, f'language_features_{mode}')
+        os.makedirs(save_folder, exist_ok=True)
+        create(args, imgs, data_list, save_folder)
