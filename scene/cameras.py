@@ -17,7 +17,7 @@ from utils.graphics_utils import getWorld2View2, getProjectionMatrix
 
 class Camera(nn.Module):
     def __init__(self, colmap_id, R, T, FoVx, FoVy, image, gt_alpha_mask,
-                 image_name, uid,
+                 image_name, language_feature_dir, uid,
                  trans=np.array([0.0, 0.0, 0.0]), scale=1.0, data_device = "cuda"
                  ):
         super(Camera, self).__init__()
@@ -29,6 +29,7 @@ class Camera(nn.Module):
         self.FoVx = FoVx
         self.FoVy = FoVy
         self.image_name = image_name
+        self.language_feature_dir = language_feature_dir
         try:
             self.data_device = torch.device(data_device)
         except Exception as e:
@@ -55,11 +56,10 @@ class Camera(nn.Module):
         self.projection_matrix = getProjectionMatrix(znear=self.znear, zfar=self.zfar, fovX=self.FoVx, fovY=self.FoVy).transpose(0,1).cuda()
         self.full_proj_transform = (self.world_view_transform.unsqueeze(0).bmm(self.projection_matrix.unsqueeze(0))).squeeze(0)
         self.camera_center = self.world_view_transform.inverse()[3, :3]
-    def get_language_feature(self, language_feature_dir, feature_level):
-        language_feature_name = os.path.join(language_feature_dir, self.image_name)
+    def get_language_feature(self, feature_level):
+        language_feature_name = os.path.join(self.language_feature_dir, self.image_name)
         seg_map = torch.from_numpy(np.load(language_feature_name + '_s.npy'))
         feature_map = torch.from_numpy(np.load(language_feature_name + '_f.npy'))
-        
         # elif str(language_feature_name).split('.')[-1] == 'pkl':
         #     with open(language_feature_name, 'rb') as f:
         #         data = pickle.load(f)

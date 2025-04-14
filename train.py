@@ -94,7 +94,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         
         # Loss
         if opt.include_feature:
-            gt_language_feature, language_feature_mask = viewpoint_cam.get_language_feature(language_feature_dir=dataset.lf_path, feature_level=dataset.feature_level)
+            gt_language_feature, language_feature_mask = viewpoint_cam.get_language_feature(feature_level=dataset.feature_level)
             Ll1 = l1_loss(language_feature*language_feature_mask, gt_language_feature*language_feature_mask)            
             loss = Ll1
         else:

@@ -62,13 +62,13 @@ def render_set(model_path, source_path, name, iteration, views, gaussians, pipel
             gt = view.original_image[0:3, :, :]
             
         else:
-            gt, mask = view.get_language_feature(os.path.join(source_path, args.language_features_name), feature_level=args.feature_level)
+            gt, mask = view.get_language_feature(feature_level=args.feature_level)
 
         min_value, max_value = get_min_max_btwn_gt_and_rendering(gt, rendering)
-        np.save(os.path.join(render_npy_path, '{0:05d}'.format(idx) + ".npy"),rendering.permute(1,2,0).cpu().numpy())
-        np.save(os.path.join(gts_npy_path, '{0:05d}'.format(idx) + ".npy"),gt.permute(1,2,0).cpu().numpy())
-        torchvision.utils.save_image(feature_to_color(rendering, min_value, max_value), os.path.join(render_path, '{0:05d}'.format(idx) + ".png"))
-        torchvision.utils.save_image(feature_to_color(gt, min_value, max_value), os.path.join(gts_path, '{0:05d}'.format(idx) + ".png"))
+        np.save(os.path.join(render_npy_path, view.image_name + ".npy"),rendering.permute(1,2,0).cpu().numpy())
+        np.save(os.path.join(gts_npy_path, view.image_name + ".npy"),gt.permute(1,2,0).cpu().numpy())
+        torchvision.utils.save_image(feature_to_color(rendering, min_value, max_value), os.path.join(render_path, view.image_name + ".png"))
+        torchvision.utils.save_image(feature_to_color(gt, min_value, max_value), os.path.join(gts_path, view.image_name + ".png"))
                
 def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParams, skip_train : bool, skip_test : bool, args):
     with torch.no_grad():
@@ -100,6 +100,8 @@ if __name__ == "__main__":
     parser.add_argument("--include_feature", action="store_true")
 
     args = get_combined_args(parser)
+    args.eval = True
+
     print("Rendering " + args.model_path)
 
     safe_state(args.quiet)
