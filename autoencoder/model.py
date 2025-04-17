@@ -44,3 +44,40 @@ class Autoencoder(nn.Module):
             x = m(x)    
         x = x / x.norm(dim=-1, keepdim=True)
         return x
+
+class DefaultOpenCLIPAutoencoder(Autoencoder):
+    encode_hiddien_dims = [512, 256, 128, 64, 32, 3]
+    decode_hidden_dims = [16, 32, 64, 128, 256, 256, 512]
+    
+    def __init__(self):
+        super().__init__(self.encode_hiddien_dims, self.decode_hidden_dims)
+        
+class DefaultCLIPAutoencoder(Autoencoder):
+    encode_hiddien_dims = [768, 512, 256, 128, 64, 32, 3]
+    decode_hidden_dims = [16, 32, 64, 128, 256, 256, 512, 768]
+
+    def __init__(self):
+        super().__init__(self.encode_hiddien_dims, self.decode_hidden_dims)
+
+class DefaultAudioCLIPAutoencoder(Autoencoder):
+    encode_hiddien_dims = [1024, 512, 256, 128, 64, 32, 3]
+    decode_hidden_dims = [16, 32, 64, 128, 256, 256, 512, 1024]
+
+    def __init__(self):
+        super().__init__(self.encode_hiddien_dims, self.decode_hidden_dims)
+
+
+
+MODEL_DICT = {
+    "open_clip": DefaultOpenCLIPAutoencoder,
+    "clip": DefaultCLIPAutoencoder,
+    "audio_clip": DefaultAudioCLIPAutoencoder,
+}
+
+def get_model(model_name):
+    return MODEL_DICT[model_name]()
+
+
+if __name__ == "__main__":
+    ae = DefaultCLIPAutoencoder()
+    print(ae)

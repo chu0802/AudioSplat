@@ -40,7 +40,12 @@ class AudioCLIPNetwork(BaseFeatureNetwork):
         
         self.model = AudioCLIP(pretrained=config.pretrained_model_path)
         self.model.to("cuda")
+
     @torch.no_grad()
     def encode_image(self, input):
         ((_, image_features, _), _), _ = self.model(image=input)
         return image_features.half()
+
+    @property
+    def embedding_dim(self) -> int:
+        return 1024

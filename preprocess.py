@@ -10,12 +10,14 @@ import cv2
 
 import torch
 
-from features.clip import OpenCLIPNetwork, OpenCLIPNetworkConfig
+from features.open_clip import OpenCLIPNetwork, OpenCLIPNetworkConfig
 from features.api import AudioCLIPNetwork, AudioCLIPNetworkConfig
+from features.clip import OpenAICLIPNetwork, OpenAICLIPNetworkConfig
+
 
 def create(args, image_list, data_list, save_folder):
     assert image_list is not None, "image_list must be provided to generate features"
-    embed_size=512 if args.model == 'clip' else 1024
+    embed_size = model.embedding_dim
     seg_maps = []
     total_lengths = []
     timer = 0
@@ -230,29 +232,45 @@ def seed_everything(seed_value):
         torch.backends.cudnn.benchmark = True
 
 
-if __name__ == '__main__':
-    seed_num = 42
-    seed_everything(seed_num)
+MODEL_DICT = {
+    "clip": OpenAICLIPNetwork,
+    "audio_clip": AudioCLIPNetwork,
+    "open_clip": OpenCLIPNetwork
+}
 
+CONFIG_DICT = {
+    "clip": OpenAICLIPNetworkConfig,
+    "audio_clip": AudioCLIPNetworkConfig,
+    "open_clip": OpenCLIPNetworkConfig
+}
+
+def get_model(model_name, device="cuda"):
+    return MODEL_DICT[model_name](CONFIG_DICT[model_name]()).to(device).eval()
+
+def arg_parse():
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset_path', type=str, required=True)
     parser.add_argument('--resolution', type=int, default=-1)
     parser.add_argument('--sam_ckpt_path', type=str, default="ckpts/sam_vit_h_4b8939.pth")
     parser.add_argument('--model', type=str, choices=['clip', 'audio_clip'], default='clip')
-    args = parser.parse_args()
+    parser.add_argument('--seed', type=int, default=1102)
+    parser.add_argument('--device', type=str, default="cuda")
+    
+    return parser.parse_args()
+
+if __name__ == '__main__':
+    args = arg_parse()
+    seed_everything(args.seed)
+
+    
     torch.set_default_dtype(torch.float32)
 
     dataset_path = args.dataset_path
     sam_ckpt_path = args.sam_ckpt_path
     
-    
-    model = (
-        OpenCLIPNetwork(OpenCLIPNetworkConfig)
-        if args.model == 'clip'
-        else AudioCLIPNetwork(AudioCLIPNetworkConfig)
-    )
+    model = get_model(args.model, args.device)
 
-    sam = sam_model_registry["vit_h"](checkpoint=sam_ckpt_path).to('cuda')
+    sam = sam_model_registry["vit_h"](checkpoint=sam_ckpt_path).to(args.device)
     mask_generator = SamAutomaticMaskGenerator(
         model=sam,
         points_per_side=32,

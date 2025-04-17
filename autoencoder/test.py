@@ -6,27 +6,19 @@ import shutil
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from dataset import Autoencoder_dataset
-from model import Autoencoder
+from model import get_model
 
-if __name__ == '__main__':
+def arg_parse():
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset_path', type=str, required=True)
     parser.add_argument('--dataset_name', type=str, required=True)
-    parser.add_argument('--encoder_dims',
-                    nargs = '+',
-                    type=int,
-                    default=[256, 128, 64, 32, 3],
-                    )
-    parser.add_argument('--decoder_dims',
-                    nargs = '+',
-                    type=int,
-                    default=[16, 32, 64, 128, 256, 256, 512],
-                    )
-    args = parser.parse_args()
+    parser.add_argument('--model', type=str, choices=['open_clip', 'clip', 'audio_clip'], default='clip')
+    return parser.parse_args()
+
+if __name__ == '__main__':
+    args = arg_parse()
     
     dataset_name = args.dataset_name
-    encoder_hidden_dims = args.encoder_dims
-    decoder_hidden_dims = args.decoder_dims
     dataset_path = args.dataset_path
     ckpt_path = f"ckpt/{dataset_name}/best_ckpt.pth"
 
@@ -55,8 +47,7 @@ if __name__ == '__main__':
             drop_last=False   
         )
 
-
-        model = Autoencoder(encoder_hidden_dims, decoder_hidden_dims).to("cuda:0")
+        model = get_model(args.model).to("cuda:0")
 
         model.load_state_dict(checkpoint)
         model.eval()
