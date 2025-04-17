@@ -5,7 +5,7 @@ from argparse import ArgumentParser
 import numpy as np
 import torch
 
-from autoencoder.model import DefaultCLIPAutoencoder
+from autoencoder.model import get_model
 from features.api import AudioCLIPNetwork, AudioCLIPNetworkConfig
 import librosa
 import glob
@@ -129,6 +129,7 @@ def arg_parse():
     parser.add_argument("--selected_point", type=tuple, default=(399, 399))
     parser.add_argument("--device", type=torch.device, default=torch.device("cuda"))
     parser.add_argument("--seed", type=int, default=1102)
+    parser.add_argument("--model", type=str, choices=["open_clip", "clip", "audio_clip"], default="clip")
     
     return parser.parse_args()
 
@@ -138,7 +139,7 @@ if __name__ == "__main__":
     args = arg_parse()
     seed_everything(args.seed)
 
-    autoencoder = DefaultCLIPAutoencoder()
+    autoencoder = get_model(args.model)
     autoencoder.load_state_dict(torch.load(args.ae_ckpt_path.as_posix()))
     autoencoder = autoencoder.cuda().eval()
 
@@ -153,7 +154,7 @@ if __name__ == "__main__":
     with torch.no_grad():
         feats = autoencoder.decode(compressed_features)
     
-    
+    breakpoint()
     
 
 
