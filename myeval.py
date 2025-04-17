@@ -5,7 +5,7 @@ from argparse import ArgumentParser
 import numpy as np
 import torch
 
-from autoencoder.model import Autoencoder
+from autoencoder.model import DefaultCLIPAutoencoder
 from features.api import AudioCLIPNetwork, AudioCLIPNetworkConfig
 import librosa
 import glob
@@ -40,21 +40,8 @@ def evaluate(feat_dir, image_dir, output_path, audio_path, autoencoder, mask_thr
     
     aclip_model = AudioCLIPNetwork(AudioCLIPNetworkConfig).eval()
     
-    # negatives = [["object"], ["things"], ["stuff"], ["texture"]]
-        
-    # with torch.no_grad():
-    #     ((_, _, negative_text_features), _), _ = aclip_model.model(text=negatives)
-    
-    # negative_text_features /= negative_text_features.norm(dim=-1, keepdim=True)
-    
     for feat, image_path in tqdm(zip(compressed_sem_feats, image_paths), total=len(compressed_sem_feats)):
         sem_feat = torch.from_numpy(feat).float().to(device)
-        
-        
-        rgb_img = cv2.imread(image_path)[..., ::-1]
-        rgb_img = (rgb_img / 255.0).astype(np.float32)
-        rgb_img = torch.from_numpy(rgb_img).to(device)
-
         
         h, w, _ = sem_feat.shape
         restored_feat = autoencoder.decode(sem_feat).reshape(h, w, -1)
@@ -119,44 +106,67 @@ def evaluate(feat_dir, image_dir, output_path, audio_path, autoencoder, mask_thr
         ai_output_dir.mkdir(parents=True, exist_ok=True)
         
         cv2.imwrite((ai_output_dir / os.path.basename(image_path)).as_posix(), audio_image_values)
-        
 
-    640000 * 1
-if __name__ == "__main__":
-    seed_num = 42
-    seed_everything(seed_num)
+@torch.no_grad()
+def get_feature_by_point(compressed_features, ae, points):
+    h, w, _ = compressed_features[0].shape
     
+    res = []
+
+    for feat in tqdm(compressed_features):
+        selected_feat = ae.decode(feat).reshape(h, w, -1)[points[0], points[1]]
+
+        res.append(selected_feat)
+
+    return res
+
+def arg_parse():
     parser = ArgumentParser(description="prompt any label")
-    parser.add_argument("--dataset_name", type=str, default=None)
-    parser.add_argument('--feat_dir', type=str, default=None)
-    parser.add_argument('--image_dir', type=str, default=None)
-    parser.add_argument("--ae_ckpt_dir", type=str, default=None)
-    parser.add_argument("--output_dir", type=str, default=None)
-    parser.add_argument("--audio_path", type=str, default=None)
-    parser.add_argument("--mask_thresh", type=float, default=0.8)
-    parser.add_argument('--encoder_dims',
-                        nargs = '+',
-                        type=int,
-                        default=[256, 128, 64, 32, 3],
-                        )
-    parser.add_argument('--decoder_dims',
-                        nargs = '+',
-                        type=int,
-                        default=[16, 32, 64, 128, 256, 256, 512],
-                        )
-    args = parser.parse_args()
+    parser.add_argument("--res_dir", type=Path)
+    parser.add_argument("--ae_ckpt_path", type=Path)
+    parser.add_argument("--output_dir", type=Path)
+    parser.add_argument("--mode", type=str, choices=["train", "test"], default="test")
+    parser.add_argument("--selected_point", type=tuple, default=(399, 399))
+    parser.add_argument("--device", type=torch.device, default=torch.device("cuda"))
+    parser.add_argument("--seed", type=int, default=1102)
+    
+    return parser.parse_args()
 
-    dataset_name = args.dataset_name
-    mask_thresh = args.mask_thresh
-    feature_dir = args.feat_dir
-    image_dir = args.image_dir
-    output_path = args.output_dir
-    audio_path = args.audio_path
-    ae_ckpt_path = os.path.join(args.ae_ckpt_dir, "best_ckpt.pth")
+    
 
-    autoencoder = Autoencoder(args.encoder_dims, args.decoder_dims)
-    autoencoder.load_state_dict(torch.load(ae_ckpt_path))
+if __name__ == "__main__":
+    args = arg_parse()
+    seed_everything(args.seed)
+
+    autoencoder = DefaultCLIPAutoencoder()
+    autoencoder.load_state_dict(torch.load(args.ae_ckpt_path.as_posix()))
     autoencoder = autoencoder.cuda().eval()
 
-    evaluate(feature_dir, image_dir, output_path, audio_path, autoencoder, mask_thresh)
+    feature_dir = args.res_dir / args.mode / "ours_None" / "renders_npy"
+    compressed_features = torch.stack([
+        torch.from_numpy(
+            np.load(feat)
+        ).float()[args.selected_point[0], args.selected_point[1], ...]
+        for feat in sorted(feature_dir.glob("*.npy"))
+    ], dim=0).to(args.device)
+
+    with torch.no_grad():
+        feats = autoencoder.decode(compressed_features)
+    
+    
+    
+
+
+    # dataset_name = args.dataset_name
+    # feature_dir = args.feat_dir
+    # image_dir = args.image_dir
+    # output_path = args.output_dir
+
+    # autoencoder = DefaultCLIPAutoencoder()
+    # autoencoder.load_state_dict(torch.load(args.ae_ckpt_path.as_posix()))
+    # autoencoder = autoencoder.cuda().eval()
+    
+    
+
+    # evaluate(feature_dir, image_dir, output_path, audio_path, autoencoder, mask_thresh)
     # evaluate(feat_dir, output_path, ae_ckpt_path, mask_thresh, args.encoder_dims, args.decoder_dims)
