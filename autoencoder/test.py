@@ -12,7 +12,7 @@ def arg_parse():
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset_path', type=str, required=True)
     parser.add_argument('--dataset_name', type=str, required=True)
-    parser.add_argument('--model', type=str, choices=['open_clip', 'clip', 'audio_clip'], default='clip')
+    parser.add_argument('--size', type=int, choices=[512, 768, 1024], default=512)
     return parser.parse_args()
 
 if __name__ == '__main__':
@@ -25,6 +25,10 @@ if __name__ == '__main__':
     for mode in ["train", "test"]:
 
         data_dir = f"{dataset_path}/language_features_{mode}"
+        
+        if not os.path.exists(data_dir):
+            continue
+        
         output_dir = f"{dataset_path}/language_features_dim3_{mode}"
         os.makedirs(output_dir, exist_ok=True)
         
@@ -47,7 +51,7 @@ if __name__ == '__main__':
             drop_last=False   
         )
 
-        model = get_model(args.model).to("cuda:0")
+        model = get_model(args.size).to("cuda:0")
 
         model.load_state_dict(checkpoint)
         model.eval()

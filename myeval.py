@@ -5,13 +5,16 @@ from argparse import ArgumentParser
 import numpy as np
 import torch
 
-from autoencoder.model import get_model
+from autoencoder.model import get_model as get_autoencoder
+from preprocess import get_model as get_lang_model
 from features.api import AudioCLIPNetwork, AudioCLIPNetworkConfig
 import librosa
 import glob
 import cv2
 from pathlib import Path
 from tqdm import tqdm
+
+from audio_model.ssv2a.api import DEFAULT_CONFIG_PATH, DEFAULT_PRETRAINED_PATH
 
 
 def seed_everything(seed_value):
@@ -129,7 +132,8 @@ def arg_parse():
     parser.add_argument("--selected_point", type=tuple, default=(399, 399))
     parser.add_argument("--device", type=torch.device, default=torch.device("cuda"))
     parser.add_argument("--seed", type=int, default=1102)
-    parser.add_argument("--model", type=str, choices=["open_clip", "clip", "audio_clip"], default="clip")
+    parser.add_argument("--model", type=str, choices=["open_clip", "clip", "ssv2a"], default="ssv2a")
+    parser.add_argument("--size", type=int, choices=[512, 768, 1024], default=512)
     
     return parser.parse_args()
 
@@ -139,23 +143,30 @@ if __name__ == "__main__":
     args = arg_parse()
     seed_everything(args.seed)
 
-    autoencoder = get_model(args.model)
+    autoencoder = get_autoencoder(args.size)
     autoencoder.load_state_dict(torch.load(args.ae_ckpt_path.as_posix()))
     autoencoder = autoencoder.cuda().eval()
 
     feature_dir = args.res_dir / args.mode / "ours_None" / "renders_npy"
     compressed_features = torch.stack([
         torch.from_numpy(
-            np.load(feat)
+            np.load(feat_path)
         ).float()[args.selected_point[0], args.selected_point[1], ...]
-        for feat in sorted(feature_dir.glob("*.npy"))
+        for feat_path in sorted(feature_dir.glob("*.npy"))
     ], dim=0).to(args.device)
 
     with torch.no_grad():
         feats = autoencoder.decode(compressed_features)
+
     
-    breakpoint()
+    model = get_lang_model(args.model).to("cuda").eval()
     
+    text_features = model.encode_text(["a photo of a car"])
+
+    for feat in feats:
+        cos_sim = torch.nn.functional.cosine_similarity(feat[None], text_features)
+        print(f"cos_sim: {cos_sim}")
+
 
 
     # dataset_name = args.dataset_name

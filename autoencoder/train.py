@@ -22,7 +22,7 @@ def arg_parse():
     parser.add_argument('--num_epochs', type=int, default=100)
     parser.add_argument('--lr', type=float, default=0.0001)
     parser.add_argument('--dataset_name', type=str, required=True)
-    parser.add_argument('--model', type=str, choices=['open_clip', 'clip', 'audio_clip'], default='clip')
+    parser.add_argument('--size', type=int, choices=[512, 768, 1024], default=512)
     
     return parser.parse_args()
 
@@ -50,7 +50,7 @@ if __name__ == '__main__':
         drop_last=False  
     )
 
-    model = get_model(args.model).to("cuda:0")
+    model = get_model(args.size).to("cuda:0")
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     logdir = f'ckpt/{args.dataset_name}'
