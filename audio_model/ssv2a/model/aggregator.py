@@ -9,7 +9,7 @@ from tqdm import tqdm
 from torch.utils.data import Dataset, DataLoader
 import torch.nn.functional as F
 
-from ssv2a.model.modules import PositionalEmbedding, TransEncoder, MLP, sample_normal
+from audio_model.ssv2a.model.modules import PositionalEmbedding, TransEncoder, MLP, sample_normal
 # from ssv2a.train.loss import kld
 
 

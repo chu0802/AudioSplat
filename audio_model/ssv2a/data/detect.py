@@ -9,7 +9,7 @@ from PIL import Image
 from tqdm.auto import tqdm
 
 # please link to the CaR modules from https://github.com/google-research/google-research/tree/master/clip_as_rnn
-from ssv2a.data.utils import read_classes, video2images, mask2bbox, elbow
+from audio_model.ssv2a.data.utils import read_classes, video2images, mask2bbox, elbow
 
 
 # detect and segment images, return all or top k segment masks > conf, optionally, save masked images to disk

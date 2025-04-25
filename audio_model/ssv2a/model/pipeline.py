@@ -13,8 +13,16 @@ import soundfile as sf
 
 from audio_model.ssv2a.data.detect import detect
 from audio_model.ssv2a.data.tpairs import tpairs2tclips
-from audio_model.ssv2a.data.utils import clip_embed_images, get_timestamp, save_wave, set_seed, emb2seq, batch_extract_frames, \
-    prior_embed_texts
+from audio_model.ssv2a.data.utils import (
+    clip_embed_images,
+    get_timestamp,
+    save_wave,
+    set_seed,
+    emb2seq,
+    batch_extract_frames,
+    prior_embed_texts,
+)
+
 from audio_model.ssv2a.model.aggregator import Aggregator
 from audio_model.ssv2a.model.clap import clap_embed_auds
 from audio_model.ssv2a.model.aldm import build_audioldm, emb_to_audio
