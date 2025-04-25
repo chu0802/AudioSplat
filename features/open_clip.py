@@ -19,6 +19,15 @@ class OpenCLIPNetworkConfig:
     clip_n_dims: int = 512
     negatives: Tuple[str] = ("object", "things", "stuff", "texture")
     positives: Tuple[str] = ("",)
+    
+@dataclass
+class VITL14NetworkConfig:
+    _target: Type = field(default_factory=lambda: OpenCLIPNetwork)
+    clip_model_type: str = "ViT-L-14"
+    clip_model_pretrained: str = "openai"
+    clip_n_dims: int = 768
+    negatives: Tuple[str] = ("object", "things", "stuff", "texture")
+    positives: Tuple[str] = ("",)
 
 class OpenCLIPNetwork(BaseFeatureNetwork):
     def __init__(self, config: OpenCLIPNetworkConfig):
@@ -62,7 +71,7 @@ class OpenCLIPNetwork(BaseFeatureNetwork):
 
     @property
     def embedding_dim(self) -> int:
-        return 512
+        return self.config.clip_n_dims
     
     @property
     def name(self) -> str:
