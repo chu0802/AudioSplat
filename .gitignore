@@ -2,6 +2,7 @@
 .vscode
 ckpts
 customized_dataset
+output_test_audio
 eval_result
 tmp_output
 output
