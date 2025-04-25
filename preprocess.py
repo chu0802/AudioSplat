@@ -1,8 +1,10 @@
 import os
 import random
 import argparse
+from pathlib import Path
 
 import numpy as np
+from PIL import Image
 import torch
 from tqdm import tqdm
 from segment_anything import SamAutomaticMaskGenerator, sam_model_registry
@@ -10,89 +12,32 @@ import cv2
 
 import torch
 
+from features.base import BaseFeatureNetwork
 from features.open_clip import OpenCLIPNetwork, OpenCLIPNetworkConfig
 from features.api import AudioCLIPNetwork, AudioCLIPNetworkConfig
 from features.clip import OpenAICLIPNetwork, OpenAICLIPNetworkConfig
+from features.ssv2a import SSV2ANetwork, SSV2ANetworkConfig
+from torchvision.transforms import ToTensor, Compose, Resize
+from torchvision.utils import save_image
 
 
-def create(args, image_list, data_list, save_folder):
-    assert image_list is not None, "image_list must be provided to generate features"
-    embed_size = model.embedding_dim
-    seg_maps = []
-    total_lengths = []
-    timer = 0
-    img_embeds = torch.zeros((len(image_list), 300, embed_size))
-    seg_maps = torch.zeros((len(image_list), 4, *image_list[0].shape[1:])) 
-    mask_generator.predictor.model.to('cuda')
-
-    for i, img in tqdm(enumerate(image_list), desc="Embedding images", leave=False, total=len(image_list)):
-        timer += 1
-        try:
-            img_embed, seg_map = _embed_clip_sam_tiles(img.unsqueeze(0), sam_encoder)
-        except:
-            raise ValueError(timer)
-        lengths = [len(v) for k, v in img_embed.items()]
-        total_length = sum(lengths)
-        total_lengths.append(total_length)
-        
-        if total_length > img_embeds.shape[1]:
-            pad = total_length - img_embeds.shape[1]
-            img_embeds = torch.cat([
-                img_embeds,
-                torch.zeros((len(image_list), pad, embed_size))
-            ], dim=1)
-
-        img_embed = torch.cat([v for k, v in img_embed.items()], dim=0)
-        assert img_embed.shape[0] == total_length
-        img_embeds[i, :total_length] = img_embed
-        
-        seg_map_tensor = []
-        lengths_cumsum = lengths.copy()
-        for j in range(1, len(lengths)):
-            lengths_cumsum[j] += lengths_cumsum[j-1]
-        for j, (k, v) in enumerate(seg_map.items()):
-            if j == 0:
-                seg_map_tensor.append(torch.from_numpy(v))
-                continue
-            assert v.max() == lengths[j] - 1, f"{j}, {v.max()}, {lengths[j]-1}"
-            v[v != -1] += lengths_cumsum[j-1]
-            seg_map_tensor.append(torch.from_numpy(v))
-        seg_maps[i] = torch.stack(seg_map_tensor, dim=0)
-
-    mask_generator.predictor.model.to('cpu')
-        
-    for i in range(img_embeds.shape[0]):
-        save_path = os.path.join(save_folder, data_list[i].split('.')[0])
-        assert total_lengths[i] == int(seg_maps[i].max() + 1)
-        curr = {
-            'feature': img_embeds[i, :total_lengths[i]],
-            'seg_maps': seg_maps[i]
-        }
-        sava_numpy(save_path, curr)
-
-def sava_numpy(save_path, data):
+def save_numpy(save_path, feature, seg_map):
+    if isinstance(save_path, Path):
+        save_path = save_path.as_posix()
     save_path_s = save_path + '_s.npy'
     save_path_f = save_path + '_f.npy'
-    np.save(save_path_s, data['seg_maps'].numpy())
-    np.save(save_path_f, data['feature'].numpy())
+    np.save(save_path_s, seg_map)
+    np.save(save_path_f, feature)
 
-def _embed_clip_sam_tiles(image, sam_encoder):
-    aug_imgs = torch.cat([image])
-    seg_images, seg_map = sam_encoder(aug_imgs)
-
-    clip_embeds = {}
-    for mode in ['l']:
-        tiles = seg_images[mode]
-        tiles = tiles.to("cuda")
-        clip_embed = model.encode_image(tiles)
-        clip_embed /= clip_embed.norm(dim=-1, keepdim=True)
-        clip_embeds[mode] = clip_embed.detach().cpu().half()
-
-    return clip_embeds, seg_map
+def get_features(seg_images, model):
+    clip_embed = model.encode_image(seg_images.to("cuda"))
+    clip_embed /= clip_embed.norm(dim=-1, keepdim=True)
+    return clip_embed.detach().cpu().float().numpy()
 
 def get_seg_img(mask, image):
     image = image.copy()
-    image[mask['segmentation']==0] = np.array([0, 0,  0], dtype=np.uint8)
+    # here I remove the masking operation.
+    # image[mask['segmentation']==0] = np.array([0, 0,  0], dtype=np.uint8)
     x,y,w,h = np.int32(mask['bbox'])
     seg_img = image[y:y+h, x:x+w, ...]
     return seg_img
@@ -192,32 +137,36 @@ def masks_update(masks_lvl, **kwargs):
     masks_lvl = filter(keep_mask_nms, masks_lvl)
     return masks_lvl
 
-def sam_encoder(image):
-    image = cv2.cvtColor(image[0].permute(1,2,0).numpy().astype(np.uint8), cv2.COLOR_BGR2RGB)
-    # pre-compute masks
-    _, _, _, masks_l = mask_generator.generate(image)
-    # pre-compute postprocess
-    masks_l = masks_update(masks_l, iou_thr=0.8, score_thr=0.7, inner_thr=0.5)
-    
-    def mask2segmap(masks, image):
-        seg_img_list = []
-        seg_map = -np.ones(image.shape[:2], dtype=np.int32)
-        for i in range(len(masks)):
-            mask = masks[i]
-            seg_img = get_seg_img(mask, image)
-            pad_seg_img = cv2.resize(pad_img(seg_img), (224,224))
-            seg_img_list.append(pad_seg_img)
+def mask2segmap(masks, image):
+    seg_img_list = []
+    seg_map = -np.ones(image.shape[:2], dtype=np.int32)
+    for i in range(len(masks)):
+        mask = masks[i]
+        seg_img = get_seg_img(mask, image)
+        pad_seg_img = Resize(224)(ToTensor()(pad_img(seg_img)))
+        # pad_seg_img = ToTensor()(cv2.resize(pad_img(seg_img), (224,224)))
+        seg_img_list.append(pad_seg_img)
 
-            seg_map[masks[i]['segmentation']] = i
-        seg_imgs = np.stack(seg_img_list, axis=0) # b,H,W,3
-        seg_imgs = (torch.from_numpy(seg_imgs.astype("float32")).permute(0,3,1,2) / 255.0).to('cuda')
+        seg_map[masks[i]['segmentation']] = i
+    seg_imgs = torch.stack(seg_img_list, axis=0).to("cuda")
 
-        return seg_imgs, seg_map
-    seg_images, seg_maps = {}, {}
-    seg_images['l'], seg_maps['l'] = mask2segmap(masks_l, image)
+    return seg_imgs, seg_map
+
+def mask_processor(image, mask_generator, save_folder=None):
+    masks = mask_generator.generate(image)
+    masks = masks_update(masks, iou_thr=0.8, score_thr=0.7, inner_thr=0.5)
     
-    # 0:default 1:s 2:m 3:l
-    return seg_images, seg_maps
+    seg_images, seg_map = mask2segmap(masks, image)
+    
+    if save_folder is not None:
+        save_folder.mkdir(parents=True, exist_ok=True)
+        for i, seg_img in enumerate(seg_images):
+            save_image(seg_img, save_folder / f"seg_img_{i:03d}.png")
+    
+    seg_map = np.tile(seg_map, (4, 1, 1))
+    
+    return seg_images, seg_map
+
 
 def seed_everything(seed_value):
     random.seed(seed_value)
@@ -235,24 +184,26 @@ def seed_everything(seed_value):
 MODEL_DICT = {
     "clip": OpenAICLIPNetwork,
     "audio_clip": AudioCLIPNetwork,
-    "open_clip": OpenCLIPNetwork
+    "open_clip": OpenCLIPNetwork,
+    "ssv2a": SSV2ANetwork,
 }
 
 CONFIG_DICT = {
     "clip": OpenAICLIPNetworkConfig,
     "audio_clip": AudioCLIPNetworkConfig,
-    "open_clip": OpenCLIPNetworkConfig
+    "open_clip": OpenCLIPNetworkConfig,
+    "ssv2a": SSV2ANetworkConfig,
 }
 
-def get_model(model_name, device="cuda"):
-    return MODEL_DICT[model_name](CONFIG_DICT[model_name]()).to(device).eval()
+def get_model(model_name: str) -> BaseFeatureNetwork:
+    return MODEL_DICT[model_name](CONFIG_DICT[model_name]())
 
 def arg_parse():
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset_path', type=str, required=True)
     parser.add_argument('--resolution', type=int, default=-1)
     parser.add_argument('--sam_ckpt_path', type=str, default="ckpts/sam_vit_h_4b8939.pth")
-    parser.add_argument('--model', type=str, choices=['clip', 'audio_clip'], default='clip')
+    parser.add_argument('--model', type=str, choices=['clip', 'audio_clip', 'ssv2a'], default='ssv2a')
     parser.add_argument('--seed', type=int, default=1102)
     parser.add_argument('--device', type=str, default="cuda")
     
@@ -262,13 +213,12 @@ if __name__ == '__main__':
     args = arg_parse()
     seed_everything(args.seed)
 
-    
     torch.set_default_dtype(torch.float32)
 
     dataset_path = args.dataset_path
     sam_ckpt_path = args.sam_ckpt_path
     
-    model = get_model(args.model, args.device)
+    model = get_model(args.model).to(args.device).eval()
 
     sam = sam_model_registry["vit_h"](checkpoint=sam_ckpt_path).to(args.device)
     mask_generator = SamAutomaticMaskGenerator(
@@ -277,8 +227,6 @@ if __name__ == '__main__':
         pred_iou_thresh=0.7,
         box_nms_thresh=0.7,
         stability_score_thresh=0.85,
-        crop_n_layers=1,
-        crop_n_points_downscale_factor=1,
         min_mask_region_area=100,
     )
 
@@ -287,37 +235,23 @@ if __name__ == '__main__':
 
     for mode in ['train', 'test']:
         print(f"Processing {mode} set")
-        img_list = []
-        img_folder = os.path.join(dataset_path, mode)
-        data_list = os.listdir(img_folder)
-        data_list.sort()
 
-        for data_path in data_list:
-            image_path = os.path.join(img_folder, data_path)
-            image = cv2.imread(image_path)
+        img_folder = Path(dataset_path) / mode
+        
+        if not img_folder.exists():
+            print(f"Warning: {img_folder} does not exist")
+            continue
 
-            orig_w, orig_h = image.shape[1], image.shape[0]
-            if args.resolution == -1:
-                if orig_h > 1080:
-                    if not WARNED:
-                        print("[ INFO ] Encountered quite large input images (>1080P), rescaling to 1080P.\n "
-                            "If this is not desired, please explicitly specify '--resolution/-r' as 1")
-                        WARNED = True
-                    global_down = orig_h / 1080
-                else:
-                    global_down = 1
-            else:
-                global_down = orig_w / args.resolution
-                
-            scale = float(global_down)
-            resolution = (int( orig_w  / scale), int(orig_h / scale))
+        data_list = sorted(img_folder.iterdir())
+
+        images = []
+        for data_path in tqdm(data_list):
+            image = cv2.cvtColor(cv2.imread(data_path), cv2.COLOR_BGR2RGB)
             
-            image = cv2.resize(image, resolution)
-            image = torch.from_numpy(image)
-            img_list.append(image)
-        images = [img_list[i].permute(2, 0, 1)[None, ...] for i in range(len(img_list))]
-        imgs = torch.cat(images)
+            save_folder = Path(dataset_path) / f'language_features_{mode}'
+            save_folder.mkdir(parents=True, exist_ok=True)
+            seg_images, seg_map = mask_processor(image, mask_generator, save_folder / "intermediate_results" / data_path.stem)
+            
+            image_features = get_features(seg_images, model)
 
-        save_folder = os.path.join(dataset_path, f'language_features_{mode}')
-        os.makedirs(save_folder, exist_ok=True)
-        create(args, imgs, data_list, save_folder)
+            save_numpy(save_folder / data_path.stem, image_features, seg_map)
