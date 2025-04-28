@@ -1,12 +1,9 @@
-[submodule "submodules/segment-anything-langsplat"]
-	path = submodules/segment-anything-langsplat
-	url = https://github.com/minghanqin/segment-anything-langsplat
+[submodule "submodules/segment-anything"]
+	path = submodules/segment-anything
+	url = https://github.com/facebookresearch/segment-anything
 [submodule "submodules/simple-knn"]
 	path = submodules/simple-knn
 	url = https://gitlab.inria.fr/bkerbl/simple-knn.git
 [submodule "submodules/langsplat-rasterization"]
 	path = submodules/langsplat-rasterization
 	url = https://github.com/minghanqin/langsplat-rasterization
-[submodule "audio_clip"]
-	path = audio_clip
-	url = https://github.com/AndreyGuzhov/AudioCLIP.git
