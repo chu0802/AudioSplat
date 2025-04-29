@@ -14,7 +14,6 @@ import torch
 
 from features.base import BaseFeatureNetwork
 from features.open_clip import OpenCLIPNetwork, OpenCLIPNetworkConfig
-from features.api import AudioCLIPNetwork, AudioCLIPNetworkConfig
 from features.clip import OpenAICLIPNetwork, OpenAICLIPNetworkConfig
 from features.ssv2a import SSV2ANetwork, SSV2ANetworkConfig
 from torchvision.transforms import ToTensor, Compose, Resize
@@ -183,14 +182,12 @@ def seed_everything(seed_value):
 
 MODEL_DICT = {
     "clip": OpenAICLIPNetwork,
-    "audio_clip": AudioCLIPNetwork,
     "open_clip": OpenCLIPNetwork,
     "ssv2a": SSV2ANetwork,
 }
 
 CONFIG_DICT = {
     "clip": OpenAICLIPNetworkConfig,
-    "audio_clip": AudioCLIPNetworkConfig,
     "open_clip": OpenCLIPNetworkConfig,
     "ssv2a": SSV2ANetworkConfig,
 }
@@ -203,7 +200,7 @@ def arg_parse():
     parser.add_argument('--dataset_path', type=str, required=True)
     parser.add_argument('--resolution', type=int, default=-1)
     parser.add_argument('--sam_ckpt_path', type=str, default="ckpts/sam_vit_h_4b8939.pth")
-    parser.add_argument('--model', type=str, choices=['clip', 'audio_clip', 'ssv2a'], default='ssv2a')
+    parser.add_argument('--model', type=str, choices=['clip', 'ssv2a'], default='ssv2a')
     parser.add_argument('--seed', type=int, default=1102)
     parser.add_argument('--device', type=str, default="cuda")
     
@@ -217,7 +214,7 @@ if __name__ == '__main__':
 
     dataset_path = args.dataset_path
     sam_ckpt_path = args.sam_ckpt_path
-    
+
     model = get_model(args.model).to(args.device).eval()
 
     sam = sam_model_registry["vit_h"](checkpoint=sam_ckpt_path).to(args.device)
@@ -230,14 +227,14 @@ if __name__ == '__main__':
         min_mask_region_area=100,
     )
 
-    
+
     WARNED = False
 
     for mode in ['train', 'test']:
         print(f"Processing {mode} set")
 
         img_folder = Path(dataset_path) / mode
-        
+
         if not img_folder.exists():
             print(f"Warning: {img_folder} does not exist")
             continue
@@ -247,11 +244,17 @@ if __name__ == '__main__':
         images = []
         for data_path in tqdm(data_list):
             image = cv2.cvtColor(cv2.imread(data_path), cv2.COLOR_BGR2RGB)
-            
+
+            h, w = image.shape[:2]
+            if h >= 1080:
+                scale = float(h / 1080)
+                resolution = (int( w  / scale), int(h / scale))
+                image = cv2.resize(image, resolution)
+
             save_folder = Path(dataset_path) / f'language_features_{mode}'
             save_folder.mkdir(parents=True, exist_ok=True)
             seg_images, seg_map = mask_processor(image, mask_generator, save_folder / "intermediate_results" / data_path.stem)
-            
+
             image_features = get_features(seg_images, model)
 
             save_numpy(save_folder / data_path.stem, image_features, seg_map)

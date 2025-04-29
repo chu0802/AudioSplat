@@ -12,6 +12,7 @@ build
 diff_rasterization/diff_rast.egg-info
 diff_rasterization/dist
 
+audio_model/example
 tensorboard_3d
 **/__pycache__/
 events.out*

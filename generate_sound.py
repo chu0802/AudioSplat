@@ -19,19 +19,21 @@ def decompress_feature(args, feature):
         feature = ae.decode(feature)
     
     return feature
+
+# this should only happen in the colmap-style dataset and the selected view is a test view.
+def mode_correct(path: str):
+    if not Path(path).exists():
+        path = path.replace("test", "train")
+    return path
     
 def aggregate_compressed_align_feature(args):
     selected_feature_path = f"output/{args.dataset}_3/{args.mode}/ours_None/renders_npy/{args.name}.npy"
-    corresponding_seg_map_path = f"customized_dataset/data/{args.dataset}/language_features_{args.mode}/{args.name}_s.npy"
-    
-    # this should only happen in the colmap-style dataset and the selected view is a test view.
-    if not Path(corresponding_seg_map_path).exists():
-        corresponding_seg_map_path = corresponding_seg_map_path.replace("test", "train")
-    
+    corresponding_seg_map_path = mode_correct(f"customized_dataset/data/{args.dataset}/language_features_{args.mode}/{args.name}_s.npy")
+
     seg_map = np.load(corresponding_seg_map_path)[-1, :, :]
     selected_feature = np.load(selected_feature_path)
     features = []
-    for i in range(seg_map.max()):
+    for i in range(seg_map.max()+1):
         mask = seg_map == i
         selected_features = selected_feature[mask]
         
@@ -46,7 +48,7 @@ def get_feature(args):
     if args.type == "uncompressed" or args.type == "compressed":
         type = "language_features" if args.type == "uncompressed" else "language_features_dim3"
         name = f"{args.name}_f"
-        selected_feature_path = Path(f"customized_dataset/data/{args.dataset}/{type}_{args.mode}/{name}.npy")
+        selected_feature_path = mode_correct(f"customized_dataset/data/{args.dataset}/{type}_{args.mode}/{name}.npy")
         feature = torch.from_numpy(np.load(selected_feature_path)).float().cuda()
     else:
         feature = aggregate_compressed_align_feature(args)
