@@ -9,6 +9,7 @@ import subprocess as sp
 from PIL import Image
 from torchvision import transforms
 from decord import VideoReader, cpu
+import numpy as np
 
 class PadCrop(nn.Module):
     def __init__(self, n_samples, randomize=True):
@@ -125,10 +126,11 @@ def read_video(filepath, seek_time=0., duration=-1, target_fps=2):
         return torch.zeros((int(duration * target_fps), 3, 224, 224))
     
     ext = os.path.splitext(filepath)[1].lower()
-    if ext in ['.jpg', '.jpeg', '.png']:
+    if ext in ['.jpg', '.jpeg', '.png', '.JPG', '.JPEG']:
         resize_transform = transforms.Resize((224, 224))
         image = Image.open(filepath).convert("RGB")
-        frame = transforms.ToTensor()(image).unsqueeze(0)
+        frame = torch.from_numpy(np.array(image)).permute(2, 0, 1).unsqueeze(0)
+        # frame = transforms.ToTensor()(image).unsqueeze(0)
         frame = resize_transform(frame)
         target_frames = int(duration * target_fps)
         frame = frame.repeat(int(math.ceil(target_frames / frame.shape[0])), 1, 1, 1)[:target_frames]
