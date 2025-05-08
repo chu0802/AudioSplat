@@ -11,6 +11,8 @@ from dataclasses import dataclass
 class SSV2ANetworkConfig:
     config_path: str = "/work/chu980802/ssv2a/ssv2a.json"
     ckpt_path: str = "/work/chu980802/ssv2a/ssv2a.pth"
+    dalle2_cfg: str = "/work/chu980802/ssv2a/dalle2_prior_config.json"
+    dalle2_ckpt: str = "/work/chu980802/ssv2a/dalle2_prior.pth"
     clip_version: str = "ViT-L/14"
 
 class SSV2ANetwork(BaseFeatureNetwork):
