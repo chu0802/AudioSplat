@@ -138,6 +138,7 @@ class EmbAudioLDM(LatentDiffusion):
             name="waveform",
             use_plms=False,
             save=False,
+            return_multiple_samples=False,
             **kwargs,
     ):
         # Generate n_candidate_gen_per_text times and select the best
@@ -197,23 +198,26 @@ class EmbAudioLDM(LatentDiffusion):
                 mel = self.decode_first_stage(samples)
 
                 waveform = self.mel_spectrogram_to_waveform(mel)
-
-                if waveform.shape[0] > 1:
-                    similarity = self.cond_stage_model.cos_similarity(
-                        torch.FloatTensor(waveform).squeeze(1), text
-                    )
-
-                    best_index = []
-                    for i in range(z.shape[0]):
-                        candidates = similarity[i:: z.shape[0]]
-                        max_index = torch.argmax(candidates).item()
-                        best_index.append(i + max_index * z.shape[0])
-
-                    waveform = waveform[best_index]
-                    # print("Similarity between generated audio and text", similarity)
-                    # print("Choose the following indexes:", best_index)
-
+                
+                if return_multiple_samples:
                     waves.append(waveform)
+                else:
+                    if waveform.shape[0] > 1:
+                        similarity = self.cond_stage_model.cos_similarity(
+                            torch.FloatTensor(waveform).squeeze(1), text
+                        )
+
+                        best_index = []
+                        for i in range(z.shape[0]):
+                            candidates = similarity[i:: z.shape[0]]
+                            max_index = torch.argmax(candidates).item()
+                            best_index.append(i + max_index * z.shape[0])
+
+                        waveform = waveform[best_index]
+                        # print("Similarity between generated audio and text", similarity)
+                        # print("Choose the following indexes:", best_index)
+
+                        waves.append(waveform)
 
         return np.concatenate(waves)
 
@@ -324,7 +328,8 @@ def emb_to_audio(
         duration=10,
         batchsize=1,
         guidance_scale=2.5,
-        n_candidate_gen_per_text=3
+        n_candidate_gen_per_text=3,
+        return_multiple_samples=False,
 ):
     seed_everything(int(seed))
     logging.set_verbosity_error()
@@ -350,6 +355,7 @@ def emb_to_audio(
             ddim_steps=ddim_steps,
             n_candidate_gen_per_text=n_candidate_gen_per_text,
             duration=duration,
+            return_multiple_samples=return_multiple_samples,
         )
     return waveform
 

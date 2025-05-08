@@ -120,7 +120,7 @@ class Pipeline(nn.Module):
         rt_claps = torch.empty(B, 512).to(self.device)  # [B, E]
         rt_scores = torch.ones(B).to(self.device)  # [B]
         src = self.manifold.fold_clips(clips, var_samples=var_samples, normalize=False)
-        for i in range(its + 1):  # one more round to include its = 0 (no recursion)
+        for i in tqdm(range(its + 1), desc="Cycle Mix"):  # one more round to include its = 0 (no recursion)
             if fixed_src is not None:  # reinject audio sources
                 src_mask = torch.sum(clips.bool(), dim=-1).bool().logical_not()  # zero slots
                 src[src_mask, ...] = fixed_src[src_mask, ...]
